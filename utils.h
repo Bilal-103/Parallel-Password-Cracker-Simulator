@@ -1,6 +1,7 @@
 #ifndef PASSWORD_UTILS_H
 #define PASSWORD_UTILS_H
 
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -16,12 +17,17 @@ struct InputConfig {
 };
 
 InputConfig readInputConfig();
+int readExecutionModeChoice();
 std::vector<std::string> loadWordlist(const std::string& path);
 std::vector<std::string> defaultCommonPasswords();
 void printSimulationReport(
     const std::string& title,
     const SimulationResult& result,
     double sequentialSeconds
+);
+void printComparisonDashboard(
+    const std::vector<std::pair<std::string, SimulationResult>>& rows,
+    double baselineSeconds
 );
 
 #endif
