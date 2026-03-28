@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Password Security Analysis and Guessing Simulation Tool (Safe Educational Version)
 
 This project simulates password-guessing behavior for **authorized security testing and education**.
@@ -99,3 +100,6 @@ Each mode reports:
 - Educational and authorized usage only.
 - Controlled brute-force limit is intentionally applied.
 - No networking, no privilege bypass, no exploit logic.
+=======
+# Parallel-Password-Cracker-Simulator
+>>>>>>> e21644c719718cf52926ecf816f283260f84a253
