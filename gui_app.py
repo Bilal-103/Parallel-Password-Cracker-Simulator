@@ -69,7 +69,7 @@ class PasswordSimulatorGUI:
 
         subtitle = tk.Label(
             header_card,
-            text="Window GUI for your parallel simulation engine",
+            text="Window GUI of parallel password cracker",
             bg=THEME["panel"],
             fg=THEME["muted"],
             font=("Segoe UI", 11),
