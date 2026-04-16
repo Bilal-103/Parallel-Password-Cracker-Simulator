@@ -1,27 +1,35 @@
 import os
+import random
 import subprocess
 import threading
 import tkinter as tk
+from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
 
-APP_TITLE = "Password Cracker Simulator - GUI"
+APP_TITLE = "Password Cracker Simulator - Cinematic Console"
 DEFAULT_CHARSET = "abcdefghijklmnopqrstuvwxyz0123456789"
+MATRIX_GLYPHS = "01ABCDEF@$#%&*"
 
 
 THEME = {
-    "bg_top": "#10151f",
-    "bg_bottom": "#05070b",
-    "panel": "#121824",
-    "panel_alt": "#1a2232",
-    "border": "#2f3c56",
-    "text": "#e9eef9",
-    "muted": "#9fb0cf",
-    "accent": "#42d6ff",
-    "accent_soft": "#2a4e66",
-    "danger": "#f36f7f",
-    "output_bg": "#0b1018",
+    "base": "#010905",
+    "base_alt": "#02120b",
+    "grid": "#0a2d1f",
+    "grid_soft": "#072016",
+    "panel": "#02160f",
+    "panel_alt": "#032117",
+    "panel_deep": "#000f09",
+    "line": "#0f5f3d",
+    "text": "#d6ffe8",
+    "muted": "#6fa78d",
+    "accent": "#39ff9b",
+    "accent_soft": "#22a96b",
+    "warning": "#ffcb6b",
+    "danger": "#ff5f73",
+    "console": "#00110a",
+    "console_text": "#b8ffd8",
 }
 
 
@@ -29,8 +37,8 @@ class PasswordSimulatorGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title(APP_TITLE)
-        self.root.geometry("1120x760")
-        self.root.minsize(980, 680)
+        self.root.geometry("1220x790")
+        self.root.minsize(1020, 700)
 
         self.target_var = tk.StringVar()
         self.wordlist_var = tk.StringVar()
@@ -39,79 +47,175 @@ class PasswordSimulatorGUI:
         self.limit_var = tk.StringVar(value="200000")
         self.proposal_var = tk.BooleanVar(value=True)
         self.mode_var = tk.StringVar(value="Run all")
-        self.status_var = tk.StringVar(value="Ready")
 
-        self.run_button = None
-        self.output_box = None
+        self.status_var = tk.StringVar(value="System idle | awaiting operator")
+        self.clock_var = tk.StringVar(value="00:00:00")
+        self.uplink_var = tk.StringVar(value="--")
+        self.thermal_var = tk.StringVar(value="--")
+        self.trace_var = tk.StringVar(value="STANDBY")
+
+        self.run_button: tk.Button | None = None
+        self.output_box: ScrolledText | None = None
+        self.status_label: tk.Label | None = None
+        self.signal_canvas: tk.Canvas | None = None
+        self.bg_canvas: tk.Canvas | None = None
+
+        self.is_running = False
+        self.matrix_streams: list[dict[str, float]] = []
+
         self.build_ui()
 
     def build_ui(self) -> None:
-        self.root.configure(bg=THEME["bg_bottom"])
+        self.root.configure(bg=THEME["base"])
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
+        self._configure_ttk_styles()
 
-        shell = tk.Frame(self.root, bg=THEME["bg_bottom"], padx=22, pady=20)
+        self.bg_canvas = tk.Canvas(
+            self.root,
+            bg=THEME["base"],
+            highlightthickness=0,
+            bd=0,
+        )
+        self.bg_canvas.grid(row=0, column=0, sticky="nsew")
+        self.bg_canvas.bind("<Configure>", self._on_canvas_resize)
+
+        shell = tk.Frame(self.root, bg=THEME["base"], padx=24, pady=22)
         shell.grid(row=0, column=0, sticky="nsew")
-
-        header_card = tk.Frame(shell, bg=THEME["panel"], bd=0, highlightthickness=1, highlightbackground=THEME["border"])
-        header_card.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 14))
-
-        title = tk.Label(
-            header_card,
-            text="PARALLEL PASSWORD CRACKER SIMULATOR",
-            bg=THEME["panel"],
-            fg=THEME["text"],
-            font=("Bahnschrift SemiBold", 22),
-            padx=20,
-            pady=14,
-        )
-        title.pack(anchor="w")
-
-        subtitle = tk.Label(
-            header_card,
-            text="Window GUI of parallel password cracker",
-            bg=THEME["panel"],
-            fg=THEME["muted"],
-            font=("Segoe UI", 11),
-            padx=20,
-            pady=14,
-        )
-        subtitle.pack(anchor="w")
-
-        shell.columnconfigure(0, weight=2)
-        shell.columnconfigure(1, weight=3)
+        shell.columnconfigure(0, weight=2, minsize=360)
+        shell.columnconfigure(1, weight=3, minsize=520)
         shell.rowconfigure(1, weight=1)
 
-        form_card = tk.Frame(shell, bg=THEME["panel_alt"], bd=0, highlightthickness=1, highlightbackground=THEME["border"])
+        header_card = tk.Frame(
+            shell,
+            bg=THEME["panel"],
+            highlightthickness=1,
+            highlightbackground=THEME["line"],
+            padx=16,
+            pady=12,
+        )
+        header_card.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 14))
+        self._build_header(header_card)
+
+        form_card = tk.Frame(
+            shell,
+            bg=THEME["panel_alt"],
+            highlightthickness=1,
+            highlightbackground=THEME["line"],
+        )
         form_card.grid(row=1, column=0, sticky="nsew", padx=(0, 10))
 
-        output_card = tk.Frame(shell, bg=THEME["panel"], bd=0, highlightthickness=1, highlightbackground=THEME["border"])
+        output_card = tk.Frame(
+            shell,
+            bg=THEME["panel"],
+            highlightthickness=1,
+            highlightbackground=THEME["line"],
+        )
         output_card.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
 
         self._build_form(form_card)
         self._build_output(output_card)
 
-        status_strip = tk.Frame(shell, bg=THEME["panel"], bd=0, highlightthickness=1, highlightbackground=THEME["border"])
+        status_strip = tk.Frame(
+            shell,
+            bg=THEME["panel"],
+            highlightthickness=1,
+            highlightbackground=THEME["line"],
+        )
         status_strip.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(14, 0))
-        tk.Label(
+
+        indicator = tk.Canvas(
+            status_strip,
+            width=14,
+            height=14,
+            bg=THEME["panel"],
+            highlightthickness=0,
+            bd=0,
+        )
+        indicator.pack(side="left", padx=(14, 8), pady=10)
+        indicator.create_oval(2, 2, 12, 12, fill=THEME["accent"], outline="")
+
+        self.status_label = tk.Label(
             status_strip,
             textvariable=self.status_var,
             bg=THEME["panel"],
             fg=THEME["accent"],
             font=("Consolas", 10, "bold"),
-            padx=14,
+            padx=4,
             pady=10,
-        ).pack(anchor="w")
+            anchor="w",
+        )
+        self.status_label.pack(side="left", fill="x", expand=True)
+
+        self._emit_boot_sequence()
+        self._update_hud()
+        self._animate_ambience()
+
+    def _configure_ttk_styles(self) -> None:
+        style = ttk.Style()
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+
+        style.configure(
+            "Cinematic.TCombobox",
+            foreground=THEME["text"],
+            fieldbackground=THEME["panel_deep"],
+            background=THEME["panel_deep"],
+            font=("Consolas", 10),
+        )
+        style.map(
+            "Cinematic.TCombobox",
+            fieldbackground=[("readonly", THEME["panel_deep"])],
+            foreground=[("readonly", THEME["text"])],
+            selectbackground=[("readonly", THEME["panel_deep"])],
+            selectforeground=[("readonly", THEME["text"])],
+        )
+
+        self.root.option_add("*TCombobox*Listbox*Background", THEME["panel_deep"])
+        self.root.option_add("*TCombobox*Listbox*Foreground", THEME["text"])
+        self.root.option_add("*TCombobox*Listbox*selectBackground", THEME["accent_soft"])
+        self.root.option_add("*TCombobox*Listbox*selectForeground", "#00110a")
+
+    def _build_header(self, parent: tk.Frame) -> None:
+        parent.columnconfigure(0, weight=1)
+
+        tk.Label(
+            parent,
+            text="PARALLEL PASSWORD CRACKER :: CINEMATIC COMMAND INTERFACE",
+            bg=THEME["panel"],
+            fg=THEME["accent"],
+            font=("Bahnschrift SemiBold", 21),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+
+        tk.Label(
+            parent,
+            text="AUTHORIZED SIMULATION NODE | CPU + OPENMP + MPI + CUDA",
+            bg=THEME["panel"],
+            fg=THEME["muted"],
+            font=("Consolas", 10),
+            anchor="w",
+            pady=6,
+        ).grid(row=1, column=0, sticky="w")
+
+        tk.Label(
+            parent,
+            textvariable=self.clock_var,
+            bg=THEME["panel"],
+            fg=THEME["text"],
+            font=("Consolas", 14, "bold"),
+            anchor="e",
+        ).grid(row=0, column=1, rowspan=2, sticky="e", padx=(10, 0))
 
     def _build_form(self, parent: tk.Frame) -> None:
         parent.columnconfigure(1, weight=1)
 
         tk.Label(
             parent,
-            text="Simulation Controls",
+            text="OPERATOR CONTROLS",
             bg=THEME["panel_alt"],
             fg=THEME["text"],
-            font=("Bahnschrift", 16, "bold"),
+            font=("Bahnschrift", 15, "bold"),
             padx=14,
             pady=14,
         ).grid(row=0, column=0, columnspan=3, sticky="w")
@@ -124,17 +228,19 @@ class PasswordSimulatorGUI:
         self._label(parent, "Wordlist path", row)
         wordlist_entry = self._entry(parent, self.wordlist_var, row)
         wordlist_entry.grid_configure(columnspan=1)
+
         browse_btn = tk.Button(
             parent,
-            text="Browse",
+            text="SCAN",
             command=self.pick_wordlist,
             bg=THEME["accent_soft"],
-            fg=THEME["text"],
+            fg="#00110a",
             activebackground=THEME["accent"],
-            activeforeground="#03131c",
+            activeforeground="#00110a",
             relief="flat",
-            padx=10,
-            pady=6,
+            font=("Consolas", 10, "bold"),
+            padx=12,
+            pady=7,
             cursor="hand2",
         )
         browse_btn.grid(row=row, column=2, sticky="ew", padx=(8, 12), pady=6)
@@ -160,7 +266,8 @@ class PasswordSimulatorGUI:
             fg=THEME["muted"],
             activebackground=THEME["panel_alt"],
             activeforeground=THEME["text"],
-            selectcolor=THEME["output_bg"],
+            selectcolor=THEME["panel_deep"],
+            font=("Consolas", 10),
             padx=8,
             pady=8,
             highlightthickness=0,
@@ -173,8 +280,9 @@ class PasswordSimulatorGUI:
             parent,
             textvariable=self.mode_var,
             state="readonly",
+            style="Cinematic.TCombobox",
             values=["Run all", "Sequential only", "OpenMP only", "MPI only", "CUDA only"],
-            font=("Segoe UI", 10),
+            font=("Consolas", 10),
         )
         mode_combo.grid(row=row, column=1, columnspan=2, sticky="ew", padx=(4, 12), pady=6)
 
@@ -186,14 +294,14 @@ class PasswordSimulatorGUI:
 
         self.run_button = tk.Button(
             action_wrap,
-            text="Run Simulation",
+            text="INITIATE RUN",
             command=self.run_simulation,
             bg=THEME["accent"],
-            fg="#03131c",
-            activebackground="#75e7ff",
-            activeforeground="#03131c",
+            fg="#00110a",
+            activebackground="#83ffc3",
+            activeforeground="#00110a",
             relief="flat",
-            font=("Segoe UI", 11, "bold"),
+            font=("Consolas", 11, "bold"),
             padx=10,
             pady=8,
             cursor="hand2",
@@ -202,14 +310,14 @@ class PasswordSimulatorGUI:
 
         clear_btn = tk.Button(
             action_wrap,
-            text="Clear Output",
+            text="PURGE LOG",
             command=self.clear_output,
-            bg="#29344a",
+            bg="#214938",
             fg=THEME["text"],
-            activebackground="#3d4d6f",
+            activebackground="#2e6a51",
             activeforeground=THEME["text"],
             relief="flat",
-            font=("Segoe UI", 10, "bold"),
+            font=("Consolas", 10, "bold"),
             padx=10,
             pady=8,
             cursor="hand2",
@@ -222,33 +330,106 @@ class PasswordSimulatorGUI:
 
     def _build_output(self, parent: tk.Frame) -> None:
         parent.columnconfigure(0, weight=1)
-        parent.rowconfigure(1, weight=1)
+        parent.rowconfigure(2, weight=1)
 
         tk.Label(
             parent,
-            text="Console Feed",
+            text="LIVE CONSOLE FEED",
             bg=THEME["panel"],
             fg=THEME["text"],
-            font=("Bahnschrift", 16, "bold"),
+            font=("Bahnschrift", 15, "bold"),
             padx=14,
-            pady=14,
+            pady=12,
         ).grid(row=0, column=0, sticky="w")
+
+        hud = tk.Frame(
+            parent,
+            bg=THEME["panel"],
+            padx=12,
+            pady=2,
+        )
+        hud.grid(row=1, column=0, sticky="ew")
+        hud.columnconfigure(0, weight=1)
+        hud.columnconfigure(1, weight=1)
+        hud.columnconfigure(2, weight=1)
+        hud.columnconfigure(3, weight=1)
+
+        self._build_hud_chip(hud, "UPLINK", self.uplink_var, 0)
+        self._build_hud_chip(hud, "CORE TEMP", self.thermal_var, 1)
+        self._build_hud_chip(hud, "TRACE BUS", self.trace_var, 2)
+
+        signal_wrap = tk.Frame(
+            hud,
+            bg=THEME["panel_deep"],
+            highlightthickness=1,
+            highlightbackground=THEME["line"],
+            padx=6,
+            pady=4,
+        )
+        signal_wrap.grid(row=0, column=3, sticky="ew", padx=(6, 0), pady=6)
+
+        tk.Label(
+            signal_wrap,
+            text="SIGNAL",
+            bg=THEME["panel_deep"],
+            fg=THEME["muted"],
+            font=("Consolas", 8, "bold"),
+        ).pack(anchor="w")
+
+        self.signal_canvas = tk.Canvas(
+            signal_wrap,
+            height=34,
+            bg=THEME["panel_deep"],
+            highlightthickness=0,
+            bd=0,
+        )
+        self.signal_canvas.pack(fill="x", expand=True)
 
         self.output_box = ScrolledText(
             parent,
             wrap="word",
             font=("Consolas", 10),
-            bg=THEME["output_bg"],
-            fg=THEME["text"],
+            bg=THEME["console"],
+            fg=THEME["console_text"],
             insertbackground=THEME["accent"],
-            selectbackground="#33526b",
+            selectbackground="#1f5f44",
             relief="flat",
             padx=12,
             pady=10,
+            borderwidth=0,
         )
-        self.output_box.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
-        self.output_box.insert("end", "Boot sequence complete. Configure options and launch simulation.\n")
+        self.output_box.grid(row=2, column=0, sticky="nsew", padx=12, pady=(6, 12))
         self.output_box.configure(state="disabled")
+
+    def _build_hud_chip(self, parent: tk.Frame, title: str, variable: tk.StringVar, column: int) -> None:
+        chip = tk.Frame(
+            parent,
+            bg=THEME["panel_deep"],
+            highlightthickness=1,
+            highlightbackground=THEME["line"],
+            padx=8,
+            pady=6,
+        )
+        chip.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 6, 0), pady=6)
+
+        tk.Label(
+            chip,
+            text=title,
+            bg=THEME["panel_deep"],
+            fg=THEME["muted"],
+            font=("Consolas", 8, "bold"),
+            anchor="w",
+        ).pack(anchor="w")
+
+        tk.Label(
+            chip,
+            textvariable=variable,
+            bg=THEME["panel_deep"],
+            fg=THEME["accent"],
+            font=("Consolas", 11, "bold"),
+            anchor="w",
+            pady=2,
+        ).pack(anchor="w")
 
     def _label(self, parent: tk.Frame, text: str, row: int) -> None:
         tk.Label(
@@ -256,7 +437,7 @@ class PasswordSimulatorGUI:
             text=text,
             bg=THEME["panel_alt"],
             fg=THEME["muted"],
-            font=("Segoe UI", 10, "bold"),
+            font=("Consolas", 10, "bold"),
             padx=12,
         ).grid(row=row, column=0, sticky="w", pady=6)
 
@@ -264,17 +445,168 @@ class PasswordSimulatorGUI:
         entry = tk.Entry(
             parent,
             textvariable=variable,
-            bg="#0f1724",
+            bg=THEME["panel_deep"],
             fg=THEME["text"],
             insertbackground=THEME["accent"],
             relief="flat",
             highlightthickness=1,
-            highlightbackground=THEME["border"],
+            highlightbackground=THEME["line"],
             highlightcolor=THEME["accent"],
-            font=("Segoe UI", 10),
+            font=("Consolas", 10),
         )
         entry.grid(row=row, column=1, columnspan=2, sticky="ew", padx=(4, 12), pady=6, ipady=6)
         return entry
+
+    def _on_canvas_resize(self, event: tk.Event) -> None:
+        self._draw_background(event.width, event.height)
+
+        target_streams = max(16, event.width // 65)
+        if len(self.matrix_streams) != target_streams:
+            self._build_matrix_streams(event.width, event.height, target_streams)
+
+    def _draw_background(self, width: int, height: int) -> None:
+        if self.bg_canvas is None:
+            return
+
+        canvas = self.bg_canvas
+        canvas.delete("bg")
+
+        split = int(height * 0.4)
+        canvas.create_rectangle(0, 0, width, split, fill=THEME["base_alt"], outline="", tags="bg")
+        canvas.create_rectangle(0, split, width, height, fill=THEME["base"], outline="", tags="bg")
+
+        for x in range(0, width, 48):
+            shade = THEME["grid"] if x % 192 == 0 else THEME["grid_soft"]
+            canvas.create_line(x, 0, x, height, fill=shade, width=1, tags="bg")
+
+        for y in range(0, height, 48):
+            shade = THEME["grid"] if y % 192 == 0 else THEME["grid_soft"]
+            canvas.create_line(0, y, width, y, fill=shade, width=1, tags="bg")
+
+        margin = 12
+        canvas.create_rectangle(
+            margin,
+            margin,
+            max(margin + 2, width - margin),
+            max(margin + 2, height - margin),
+            outline=THEME["grid"],
+            width=2,
+            tags="bg",
+        )
+
+    def _build_matrix_streams(self, width: int, height: int, count: int) -> None:
+        safe_width = max(width, 320)
+        safe_height = max(height, 300)
+        self.matrix_streams = []
+
+        for _ in range(count):
+            self.matrix_streams.append(
+                {
+                    "x": float(random.randint(20, safe_width - 20)),
+                    "y": random.uniform(-safe_height, 0),
+                    "speed": random.uniform(2.4, 7.2),
+                    "length": float(random.randint(8, 16)),
+                }
+            )
+
+    def _animate_ambience(self) -> None:
+        if self.bg_canvas is None:
+            return
+
+        canvas = self.bg_canvas
+        width = max(canvas.winfo_width(), 320)
+        height = max(canvas.winfo_height(), 280)
+
+        if not self.matrix_streams:
+            self._build_matrix_streams(width, height, max(16, width // 65))
+
+        canvas.delete("matrix")
+
+        for stream in self.matrix_streams:
+            stream["y"] += stream["speed"]
+            x = stream["x"]
+            y = stream["y"]
+            length = int(stream["length"])
+
+            if y - (length * 16) > height:
+                stream["y"] = random.uniform(-250, -24)
+                stream["x"] = float(random.randint(20, max(20, width - 20)))
+
+            for idx in range(length):
+                draw_y = y - (idx * 16)
+                if draw_y < -18 or draw_y > height + 18:
+                    continue
+
+                if idx == 0:
+                    tone = "#d9ffe8"
+                elif idx < 4:
+                    tone = THEME["accent"]
+                else:
+                    tone = "#1a7249"
+
+                canvas.create_text(
+                    x,
+                    draw_y,
+                    text=random.choice(MATRIX_GLYPHS),
+                    fill=tone,
+                    font=("Consolas", 11, "bold"),
+                    tags="matrix",
+                )
+
+        try:
+            self.root.after(90, self._animate_ambience)
+        except tk.TclError:
+            return
+
+    def _update_hud(self) -> None:
+        self.clock_var.set(datetime.now().strftime("%H:%M:%S"))
+
+        if self.is_running:
+            self.uplink_var.set(f"{random.randint(93, 99)}%")
+            self.thermal_var.set(f"{random.randint(62, 78)} C")
+            self.trace_var.set("TRACE ACTIVE")
+        else:
+            self.uplink_var.set(f"{random.randint(75, 92)}%")
+            self.thermal_var.set(f"{random.randint(47, 61)} C")
+            self.trace_var.set("TRACE STANDBY")
+
+        self._draw_signal_bars()
+
+        try:
+            self.root.after(700, self._update_hud)
+        except tk.TclError:
+            return
+
+    def _draw_signal_bars(self) -> None:
+        if self.signal_canvas is None:
+            return
+
+        canvas = self.signal_canvas
+        canvas.delete("bars")
+
+        width = max(canvas.winfo_width(), 120)
+        height = max(canvas.winfo_height(), 26)
+        bars = 15
+        bar_width = max(4, (width - 16) // bars)
+
+        for idx in range(bars):
+            strength = random.randint(6, max(10, height - 3))
+            x0 = 8 + (idx * bar_width)
+            x1 = x0 + max(2, bar_width - 2)
+            y0 = height - strength
+            y1 = height - 2
+            color = THEME["accent"] if strength > int(height * 0.65) else THEME["accent_soft"]
+            canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline="", tags="bars")
+
+    def _set_status(self, message: str, color: str) -> None:
+        self.status_var.set(message)
+        if self.status_label is not None:
+            self.status_label.configure(fg=color)
+
+    def _emit_boot_sequence(self) -> None:
+        self.append_output("[BOOT] Visual shell online.\n")
+        self.append_output("[BOOT] Link established with parallel compute modules.\n")
+        self.append_output("[INFO] Input attack parameters and launch with INITIATE RUN.\n\n")
 
     def pick_wordlist(self) -> None:
         selected = filedialog.askopenfilename(
@@ -285,11 +617,17 @@ class PasswordSimulatorGUI:
             self.wordlist_var.set(selected)
 
     def clear_output(self) -> None:
+        if self.output_box is None:
+            return
+
         self.output_box.configure(state="normal")
         self.output_box.delete("1.0", "end")
         self.output_box.configure(state="disabled")
 
     def append_output(self, text: str) -> None:
+        if self.output_box is None:
+            return
+
         self.output_box.configure(state="normal")
         self.output_box.insert("end", text)
         self.output_box.see("end")
@@ -341,9 +679,18 @@ class PasswordSimulatorGUI:
             )
             return
 
-        self.run_button.configure(state="disabled")
-        self.status_var.set("Running simulation...")
+        if self.run_button is not None:
+            self.run_button.configure(state="disabled", text="EXECUTING...")
+
+        self.is_running = True
+        self._set_status("Live run in progress | attack matrix engaged", THEME["warning"])
         self.clear_output()
+
+        self.append_output("[CMD] Operator command accepted.\n")
+        self.append_output(f"[CFG] Target: {self.target_var.get().strip()}\n")
+        self.append_output(f"[CFG] Mode: {self.mode_var.get()}\n")
+        self.append_output(f"[CFG] Candidate mode: {'Proposal' if self.proposal_var.get() else 'Smart'}\n")
+        self.append_output("[EXEC] Spawning simulator process...\n\n")
 
         thread = threading.Thread(target=self._execute_program, args=(exe_path,), daemon=True)
         thread.start()
@@ -385,27 +732,31 @@ class PasswordSimulatorGUI:
 
             def finish() -> None:
                 self.append_output(output if output else "No output received.\n")
-                self.append_output(f"\n\nProcess finished with exit code: {completed.returncode}\n")
-                self.status_var.set("Completed")
-                self.run_button.configure(state="normal")
+                self.append_output(f"\n\n[EXIT] Process finished with exit code: {completed.returncode}\n")
+
+                self.is_running = False
+                if completed.returncode == 0:
+                    self._set_status("Run complete | node returned to standby", THEME["accent"])
+                else:
+                    self._set_status("Run completed with errors | inspect console output", THEME["danger"])
+
+                if self.run_button is not None:
+                    self.run_button.configure(state="normal", text="INITIATE RUN")
 
             self.root.after(0, finish)
         except Exception as exc:  # pragma: no cover - defensive UI path
             def fail() -> None:
                 self.append_output(f"Execution failed: {exc}\n")
-                self.status_var.set("Failed")
-                self.run_button.configure(state="normal")
+                self.is_running = False
+                self._set_status("Execution failure detected", THEME["danger"])
+                if self.run_button is not None:
+                    self.run_button.configure(state="normal", text="INITIATE RUN")
 
             self.root.after(0, fail)
 
 
 def main() -> None:
     root = tk.Tk()
-
-    style = ttk.Style()
-    if "vista" in style.theme_names():
-        style.theme_use("vista")
-
     PasswordSimulatorGUI(root)
     root.mainloop()
 
